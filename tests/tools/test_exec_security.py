@@ -58,6 +58,22 @@ async def test_exec_allows_curl_to_public_url():
     assert guard_result is None
 
 
+def test_exec_allows_url_query_format_parameter():
+    """URL query strings such as wttr.in's &format= are not shell format commands."""
+    tool = ExecTool()
+    command = 'curl -s "wttr.in/Chengdu?m&format=%l:+%c+%t+%h+%w&lang=zh"'
+    with patch("nanobot.security.network.socket.getaddrinfo", _fake_resolve_public):
+        guard_result = tool._guard_command(command, "/tmp")
+    assert guard_result is None
+
+
+def test_exec_still_blocks_windows_format_command():
+    tool = ExecTool()
+    result = tool._guard_command("echo start &format C:", "/tmp")
+    assert result is not None
+    assert "dangerous pattern" in result.lower()
+
+
 @pytest.mark.asyncio
 async def test_exec_blocks_chained_internal_url():
     """Internal URLs buried in chained commands should still be caught."""
