@@ -668,6 +668,38 @@ def test_deepseek_thinking_drops_current_bad_tool_turn_without_followup_user() -
     ]
 
 
+def test_deepseek_v4_default_thinking_drops_tool_history_missing_reasoning_content() -> None:
+    spec = find_by_name("deepseek")
+    with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI"):
+        provider = OpenAICompatProvider(
+            api_key="sk-test",
+            default_model="deepseek-v4-flash",
+            spec=spec,
+        )
+
+    kwargs = provider._build_kwargs(
+        messages=[
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "please run a command"},
+            {"role": "assistant", "content": "", "tool_calls": [_tool_call("call_bad")]},
+            {"role": "tool", "tool_call_id": "call_bad", "name": "my", "content": "ok"},
+            {"role": "assistant", "content": "[Assistant reply unavailable due to model error]"},
+            {"role": "user", "content": "continue"},
+        ],
+        tools=None,
+        model="deepseek-v4-flash",
+        max_tokens=1024,
+        temperature=0.7,
+        reasoning_effort=None,
+        tool_choice=None,
+    )
+
+    assert kwargs["messages"] == [
+        {"role": "system", "content": "system"},
+        {"role": "user", "content": "continue"},
+    ]
+
+
 def test_openai_compat_keeps_tool_calls_after_consecutive_assistant_messages() -> None:
     with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()

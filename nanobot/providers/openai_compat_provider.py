@@ -60,6 +60,10 @@ _KIMI_THINKING_MODELS: frozenset[str] = frozenset({
     "kimi-k2.6",
     "k2.6-code-preview",
 })
+_DEEPSEEK_DEFAULT_THINKING_MODELS: tuple[str, ...] = (
+    "deepseek-reasoner",
+    "deepseek-v4",
+)
 _OPENAI_COMPAT_REQUEST_TIMEOUT_S = 120.0
 
 # Maps ProviderSpec.thinking_style → extra_body builder.
@@ -89,6 +93,27 @@ def _is_kimi_thinking_model(model_name: str) -> bool:
     if "/" in name and name.rsplit("/", 1)[1] in _KIMI_THINKING_MODELS:
         return True
     return False
+
+
+def _is_deepseek_default_thinking_model(model_name: str) -> bool:
+    """Return True for DeepSeek models whose thinking toggle defaults to enabled."""
+    name = model_name.lower()
+    return any(name == model or name.startswith(f"{model}-") for model in _DEEPSEEK_DEFAULT_THINKING_MODELS)
+
+
+def _thinking_mode_active(
+    spec: "ProviderSpec | None",
+    model_name: str,
+    reasoning_effort: str | None,
+    semantic_effort: str | None,
+) -> bool:
+    if semantic_effort in ("none", "minimal"):
+        return False
+    if spec and spec.name == "deepseek" and _is_deepseek_default_thinking_model(model_name):
+        return True
+    if spec and spec.thinking_style and reasoning_effort is not None:
+        return True
+    return reasoning_effort is not None and _is_kimi_thinking_model(model_name)
 
 
 def _openai_compat_timeout_s() -> float:
@@ -452,13 +477,12 @@ class OpenAICompatProvider(LLMProvider):
     def _drop_deepseek_incomplete_reasoning_history(
         self,
         messages: list[dict[str, Any]],
-        reasoning_effort: str | None,
+        thinking_active: bool,
     ) -> list[dict[str, Any]]:
         if (
             not self._spec
             or self._spec.name != "deepseek"
-            or not reasoning_effort
-            or reasoning_effort.lower() == "none"
+            or not thinking_active
         ):
             return messages
 
@@ -530,9 +554,24 @@ class OpenAICompatProvider(LLMProvider):
         if spec and spec.strip_model_prefix:
             model_name = model_name.split("/")[-1]
 
+        # Normalize reasoning_effort into a semantic form (OpenAI vocab)
+        # used for internal decisions, and a wire form actually sent out.
+        # "minimum" is accepted as a DashScope-native alias for "minimal".
+        semantic_effort: str | None = None
+        if isinstance(reasoning_effort, str):
+            semantic_effort = reasoning_effort.lower()
+            if semantic_effort == "minimum":
+                semantic_effort = "minimal"
+        thinking_active = _thinking_mode_active(
+            spec,
+            model_name,
+            reasoning_effort,
+            semantic_effort,
+        )
+
         messages = self._drop_deepseek_incomplete_reasoning_history(
             messages,
-            reasoning_effort,
+            thinking_active,
         )
         kwargs: dict[str, Any] = {
             "model": model_name,
@@ -555,15 +594,6 @@ class OpenAICompatProvider(LLMProvider):
                 if pattern in model_lower:
                     kwargs.update(overrides)
                     break
-
-        # Normalize reasoning_effort into a semantic form (OpenAI vocab)
-        # used for internal decisions, and a wire form actually sent out.
-        # "minimum" is accepted as a DashScope-native alias for "minimal".
-        semantic_effort: str | None = None
-        if isinstance(reasoning_effort, str):
-            semantic_effort = reasoning_effort.lower()
-            if semantic_effort == "minimum":
-                semantic_effort = "minimal"
 
         wire_effort = reasoning_effort
         if spec and spec.name == "dashscope" and semantic_effort == "minimal":
@@ -607,12 +637,6 @@ class OpenAICompatProvider(LLMProvider):
         # mid-session. Injecting an empty string satisfies the API
         # without altering semantics (the model treats it as "no
         # thinking happened on that turn").
-        thinking_active = (
-            (spec and spec.thinking_style and reasoning_effort is not None
-             and semantic_effort not in ("none", "minimal"))
-            or (reasoning_effort is not None and _is_kimi_thinking_model(model_name)
-                and semantic_effort not in ("none", "minimal"))
-        )
         if thinking_active:
             for msg in kwargs["messages"]:
                 if msg.get("role") == "assistant" and "reasoning_content" not in msg:
