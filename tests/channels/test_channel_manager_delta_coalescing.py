@@ -316,6 +316,35 @@ class TestProgressFiltering:
         assert manager._should_send_progress("nonexistent", tool_hint=False) is False
         assert manager._should_send_progress("nonexistent", tool_hint=True) is False
 
+    def test_websocket_defaults_tool_hints_on_for_embedded_webui(self, bus):
+        config = Config.model_validate({
+            "channels": {
+                "websocket": {
+                    "enabled": True,
+                    "websocketRequiresToken": False,
+                }
+            }
+        })
+
+        manager = ChannelManager(config, bus)
+
+        assert manager.channels["websocket"].send_tool_hints is True
+
+    def test_websocket_tool_hints_can_still_be_disabled(self, bus):
+        config = Config.model_validate({
+            "channels": {
+                "websocket": {
+                    "enabled": True,
+                    "websocketRequiresToken": False,
+                    "sendToolHints": False,
+                }
+            }
+        })
+
+        manager = ChannelManager(config, bus)
+
+        assert manager.channels["websocket"].send_tool_hints is False
+
     def test_resolve_bool_override_dict(self, manager):
         assert manager._resolve_bool_override({}, "send_progress", True) is True
         assert manager._resolve_bool_override({"send_progress": False}, "send_progress", True) is False

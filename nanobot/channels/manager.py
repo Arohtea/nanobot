@@ -96,11 +96,17 @@ class ChannelManager:
                 channel.transcription_api_key = transcription_key
                 channel.transcription_api_base = transcription_base
                 channel.transcription_language = transcription_language
+                progress_default = self._channel_bool_default(
+                    channel, "send_progress", self.config.channels.send_progress,
+                )
+                tool_hints_default = self._channel_bool_default(
+                    channel, "send_tool_hints", self.config.channels.send_tool_hints,
+                )
                 channel.send_progress = self._resolve_bool_override(
-                    section, "send_progress", self.config.channels.send_progress,
+                    section, "send_progress", progress_default,
                 )
                 channel.send_tool_hints = self._resolve_bool_override(
-                    section, "send_tool_hints", self.config.channels.send_tool_hints,
+                    section, "send_tool_hints", tool_hints_default,
                 )
                 self.channels[name] = channel
                 logger.info("{} channel enabled", cls.display_name)
@@ -166,6 +172,11 @@ class ChannelManager:
                     value = section.get(camel)
             return value if isinstance(value, bool) else default
         value = getattr(section, key, None)
+        return value if isinstance(value, bool) else default
+
+    @staticmethod
+    def _channel_bool_default(channel: BaseChannel, key: str, default: bool) -> bool:
+        value = getattr(getattr(channel, "config", None), key, None)
         return value if isinstance(value, bool) else default
 
     async def _start_channel(self, name: str, channel: BaseChannel) -> None:

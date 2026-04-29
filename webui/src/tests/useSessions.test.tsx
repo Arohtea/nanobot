@@ -170,6 +170,63 @@ describe("useSessions", () => {
     ]);
   });
 
+  it("hydrates historical tool calls into trace rows", async () => {
+    vi.mocked(api.fetchSessionMessages).mockResolvedValue({
+      key: "websocket:chat-tools",
+      created_at: "2026-04-29T10:00:00Z",
+      updated_at: "2026-04-29T10:05:00Z",
+      messages: [
+        {
+          role: "user",
+          content: "check weather",
+          timestamp: "2026-04-29T10:00:00Z",
+        },
+        {
+          role: "assistant",
+          content: "Looking up the weather",
+          timestamp: "2026-04-29T10:00:01Z",
+          tool_calls: [
+            {
+              type: "function",
+              function: {
+                name: "exec",
+                arguments: JSON.stringify({
+                  command: 'curl -s "wttr.in/Chengdu?m&format=3"',
+                }),
+              },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: "Chengdu: Sunny +20C",
+          timestamp: "2026-04-29T10:00:02Z",
+          name: "exec",
+        },
+        {
+          role: "assistant",
+          content: "Chengdu is sunny.",
+          timestamp: "2026-04-29T10:00:03Z",
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useSessionHistory("websocket:chat-tools"), {
+      wrapper: wrap(fakeClient()),
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.messages).toHaveLength(3);
+    expect(result.current.messages[1].role).toBe("tool");
+    expect(result.current.messages[1].kind).toBe("trace");
+    expect(result.current.messages[1].traces).toEqual([
+      "Looking up the weather",
+      '$ curl -s "wttr.in/Chengdu?m&format=3"',
+    ]);
+    expect(result.current.messages[2].content).toBe("Chengdu is sunny.");
+  });
+
   it("keeps the session in the list when delete fails", async () => {
     vi.mocked(api.listSessions).mockResolvedValue([
       {
